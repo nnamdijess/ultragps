@@ -28,7 +28,7 @@ def parse_waypoints(value: str) -> list[Waypoint]:
     return waypoints
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="UltraGPS ROS-style simulator")
     parser.add_argument(
         "--mode",
@@ -44,7 +44,23 @@ def parse_args() -> argparse.Namespace:
         default=parse_waypoints("2.0,2.0"),
         help="Semicolon-separated waypoints, e.g. '1.0,0.0;2.0,2.0'",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="Plot the x-y trajectory after the simulation completes",
+    )
+    parser.add_argument(
+        "--plot-headings",
+        action="store_true",
+        help="Overlay heading arrows on the trajectory plot",
+    )
+    parser.add_argument(
+        "--heading-stride",
+        type=int,
+        default=10,
+        help="Spacing between plotted heading arrows when --plot-headings is used",
+    )
+    return parser.parse_args(argv)
 
 
 def main() -> None:
@@ -54,7 +70,11 @@ def main() -> None:
         config=SimulationConfig(dt=args.dt, max_steps=args.steps),
         waypoints=args.waypoints,
     )
-    app.run()
+    app.run(
+        plot=args.plot,
+        show_headings=args.plot_headings,
+        heading_stride=args.heading_stride,
+    )
 
 
 if __name__ == "__main__":
