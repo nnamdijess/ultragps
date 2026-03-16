@@ -2,6 +2,8 @@
 
 This repository contains a **plain Python simulator** organized in a ROS-style architecture. It is lightweight and runnable without ROS installed, while keeping a clean migration path to ROS 2.
 
+Trajectory plotting is available as an optional extension to the terminal simulator via `matplotlib`.
+
 ## Design summary
 
 Components are intentionally separated like ROS nodes:
@@ -126,6 +128,8 @@ python run_sim.py --mode straight --steps 80
 python run_sim.py --mode turn --steps 80
 python run_sim.py --mode curve --steps 80
 python run_sim.py --mode waypoint --waypoints "1.0,0.0;2.0,2.0" --steps 400
+python run_sim.py --mode waypoint --waypoints "1.0,0.0;2.0,2.0" --steps 400 --plot
+python run_sim.py --mode curve --steps 120 --plot --plot-headings --heading-stride 8
 ```
 
 Modes exercise:
@@ -134,6 +138,18 @@ Modes exercise:
 - pure rotation
 - curved motion
 - single or multiple waypoint following
+
+### Trajectory plotting
+
+Use `--plot` to open a matplotlib figure after the terminal simulation finishes. The plot includes:
+
+- the robot x-y trajectory
+- a start marker
+- a final pose marker
+- waypoint markers when waypoints are supplied
+- optional heading arrows with `--plot-headings`
+
+`--heading-stride` controls how frequently heading arrows are shown.
 
 ---
 
