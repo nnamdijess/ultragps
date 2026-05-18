@@ -107,7 +107,7 @@ Why use `(v, omega)` first:
 
 ---
 
-## 4) Go-to-goal controller
+## 4) Go-to-goal controller (PD)
 
 Given current pose `(x, y, theta)` and goal `(x_g, y_g)`:
 
@@ -115,9 +115,11 @@ Given current pose `(x, y, theta)` and goal `(x_g, y_g)`:
 2. `distance = sqrt(dx^2 + dy^2)`
 3. `goal_heading = atan2(dy, dx)`
 4. `heading_error = wrap_to_pi(goal_heading - theta)`
-5. `v = clamp(k_v * distance, 0, v_max)`
-6. `omega = clamp(k_omega * heading_error, -omega_max, omega_max)`
-7. if `distance <= goal_tolerance`: publish stop command and emit `/goal_reached`
+5. `distance_dot = (distance - prev_distance) / dt`
+6. `heading_error_dot = (heading_error - prev_heading_error) / dt`
+7. `v = clamp(k_v * distance + k_d_v * distance_dot, 0, v_max)`
+8. `omega = clamp(k_omega * heading_error + k_d_omega * heading_error_dot, -omega_max, omega_max)`
+9. if `distance <= goal_tolerance`: publish stop command and emit `/goal_reached`
 
 ---
 

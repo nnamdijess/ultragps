@@ -39,7 +39,7 @@ class SimulationApp:
         )
         self.pose_publisher = PosePublisher(self.bus)
 
-        self.controller = GoToGoalController(self.bus)
+        self.controller = GoToGoalController(self.bus, dt=self.config.dt)
         self.waypoint_manager = WaypointManager(self.bus, self.waypoints)
 
         self.trajectory: list[Pose2D] = [self.simulator.pose]
