@@ -61,6 +61,17 @@ def parse_args() -> argparse.Namespace:
         default=15,
         help="Spacing between heading arrows on trajectory plot.",
     )
+    parser.add_argument(
+        "--plot-headings",
+        action="store_true",
+        help="Compatibility flag: heading arrows are already plotted when --plot is used.",
+    )
+    parser.add_argument(
+        "--log-output",
+        type=str,
+        default=None,
+        help="Optional CSV output path for performance logging.",
+    )
     return parser.parse_args()
 
 
@@ -75,6 +86,7 @@ def main() -> None:
         plot=args.plot,
         plot_output=args.plot_output,
         heading_stride=args.heading_stride,
+        log_output=args.log_output,
     )
 
 

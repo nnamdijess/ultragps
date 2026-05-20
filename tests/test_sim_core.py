@@ -1,5 +1,7 @@
+import csv
 import os
 import sys
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -54,7 +56,7 @@ class TestControllerAndWaypoints(unittest.TestCase):
         self.assertEqual((second.x, second.y), (2.0, 0.0))
 
 
-class TestTrajectoryRecording(unittest.TestCase):
+class TestTrajectoryAndLogging(unittest.TestCase):
     def test_trajectory_is_recorded(self):
         app = SimulationApp(
             mode="straight",
@@ -64,6 +66,48 @@ class TestTrajectoryRecording(unittest.TestCase):
         app.run(plot=False)
 
         self.assertEqual(len(app.trajectory), 11)
+
+    def test_logger_creates_csv_with_expected_headers(self):
+        app = SimulationApp(
+            mode="waypoint",
+            config=SimulationConfig(dt=0.1, max_steps=20, log_every_n=1000),
+            waypoints=[Waypoint(0.5, 0.0)],
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            csv_path = os.path.join(tmp_dir, "sim_log.csv")
+            app.run(plot=False, log_output=csv_path)
+            self.assertTrue(os.path.exists(csv_path))
+
+            with open(csv_path, newline="", encoding="utf-8") as file_obj:
+                reader = csv.reader(file_obj)
+                headers = next(reader)
+
+            expected_headers = [
+                "time taken",
+                "x",
+                "y",
+                "theta",
+                "goal_x",
+                "goal_y",
+                "distance_error",
+                "heading_error",
+                "v",
+                "omega",
+                "waypoint_index",
+                "goal_reached",
+            ]
+            self.assertEqual(headers, expected_headers)
+
+    def test_without_log_output_still_runs(self):
+        app = SimulationApp(
+            mode="waypoint",
+            config=SimulationConfig(dt=0.1, max_steps=15, log_every_n=1000),
+            waypoints=[Waypoint(0.5, 0.0)],
+        )
+
+        final_pose = app.run(plot=False, log_output=None)
+        self.assertIsInstance(final_pose, Pose2D)
 
 
 if __name__ == "__main__":

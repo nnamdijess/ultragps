@@ -158,6 +158,14 @@ Adjust heading-arrow spacing:
 python run_sim.py --mode waypoint --plot --heading-stride 20
 ```
 
+Enable CSV performance logging:
+
+```bash
+python run_sim.py --mode waypoint --waypoints "1.0,0.0;2.0,2.0" --steps 240 --plot --log-output pd_test.csv --plot-headings --heading-stride 8
+```
+
+The CSV includes per-step metrics: time taken, pose (`x`, `y`, `theta`), active goal, distance/heading errors, command (`v`, `omega`), waypoint index, and goal-reached flag.
+
 ---
 
 ## 6) Tests
