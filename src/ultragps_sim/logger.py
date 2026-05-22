@@ -8,9 +8,12 @@ from pathlib import Path
 @dataclass
 class StepMetrics:
     time_taken: float
-    x: float
-    y: float
-    theta: float
+    true_x: float
+    true_y: float
+    true_theta: float
+    estimated_x: float | None
+    estimated_y: float | None
+    estimated_theta: float | None
     goal_x: float | None
     goal_y: float | None
     distance_error: float
@@ -26,9 +29,12 @@ class SimulationLogger:
 
     FIELDNAMES = [
         "time taken",
-        "x",
-        "y",
-        "theta",
+        "true_x",
+        "true_y",
+        "true_theta",
+        "estimated_x",
+        "estimated_y",
+        "estimated_theta",
         "goal_x",
         "goal_y",
         "distance_error",
@@ -58,9 +64,12 @@ class SimulationLogger:
                 writer.writerow(
                     {
                         "time taken": row.time_taken,
-                        "x": row.x,
-                        "y": row.y,
-                        "theta": row.theta,
+                        "true_x": row.true_x,
+                        "true_y": row.true_y,
+                        "true_theta": row.true_theta,
+                        "estimated_x": row.estimated_x,
+                        "estimated_y": row.estimated_y,
+                        "estimated_theta": row.estimated_theta,
                         "goal_x": row.goal_x,
                         "goal_y": row.goal_y,
                         "distance_error": row.distance_error,

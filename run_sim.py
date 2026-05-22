@@ -28,7 +28,7 @@ def parse_waypoints(value: str) -> list[Waypoint]:
     return waypoints
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="UltraGPS ROS-style simulator")
     parser.add_argument(
         "--mode",
@@ -47,20 +47,49 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--plot",
         action="store_true",
-        help="Plot the x-y trajectory after the simulation completes",
+        help="Show a 2D x-y trajectory plot at the end of simulation.",
     )
     parser.add_argument(
-        "--plot-headings",
-        action="store_true",
-        help="Overlay heading arrows on the trajectory plot",
+        "--plot-output",
+        type=str,
+        default=None,
+        help="Optional output image path (e.g., trajectory.png).",
     )
     parser.add_argument(
         "--heading-stride",
         type=int,
-        default=10,
-        help="Spacing between plotted heading arrows when --plot-headings is used",
+        default=15,
+        help="Spacing between heading arrows on trajectory plot.",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--plot-headings",
+        action="store_true",
+        help="Compatibility flag: heading arrows are already plotted when --plot is used.",
+    )
+    parser.add_argument(
+        "--log-output",
+        type=str,
+        default=None,
+        help="Optional CSV output path for performance logging.",
+    )
+    parser.add_argument(
+        "--use-ultragps-estimate",
+        action="store_true",
+        help="Use noisy UltraGPS estimated pose for controller input.",
+    )
+    parser.add_argument(
+        "--position-noise",
+        type=float,
+        default=0.0,
+        help="UltraGPS position noise standard deviation (meters).",
+    )
+    parser.add_argument(
+        "--heading-noise",
+        type=float,
+        default=0.0,
+        help="UltraGPS heading noise standard deviation (radians).",
+    )
+    return parser.parse_args()
 
 
 def main() -> None:
@@ -69,11 +98,15 @@ def main() -> None:
         mode=args.mode,
         config=SimulationConfig(dt=args.dt, max_steps=args.steps),
         waypoints=args.waypoints,
+        use_estimated_pose=args.use_ultragps_estimate,
+        position_noise_std=args.position_noise,
+        heading_noise_std=args.heading_noise,
     )
     app.run(
         plot=args.plot,
-        show_headings=args.plot_headings,
+        plot_output=args.plot_output,
         heading_stride=args.heading_stride,
+        log_output=args.log_output,
     )
 
 
