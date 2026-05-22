@@ -45,8 +45,9 @@ class SimulationApp:
         self.waypoint_manager = WaypointManager(self.bus, self.waypoints)
 
         self.trajectory: list[Pose2D] = [self.simulator.pose]
-        self.logger: SimulationLogger | None = None
+        self.logger = SimulationLogger()
         self.completed_steps = 0
+        self.last_summary: dict | None = None
 
         self.bus.publish("/ground_truth_pose", self.simulator.pose)
         self.waypoint_manager.publish_goal()
@@ -63,9 +64,6 @@ class SimulationApp:
         return angle
 
     def _record_step_metrics(self, step: int, cmd: Twist2D, pose: Pose2D) -> None:
-        if self.logger is None:
-            return
-
         active = self.waypoint_manager.current_goal
         goal_x = active.x if active else None
         goal_y = active.y if active else None
@@ -158,7 +156,7 @@ class SimulationApp:
         heading_stride: int = 15,
         log_output: str | None = None,
     ) -> Pose2D:
-        self.logger = SimulationLogger(csv_path=log_output) if log_output else None
+        self.logger = SimulationLogger(csv_path=log_output)
 
         if self.mode in {"straight", "turn", "curve"}:
             self._run_open_loop()
@@ -185,10 +183,10 @@ class SimulationApp:
             if plot_output:
                 print(f"Saved plot to: {plot_output}")
 
-        active = self.waypoint_manager.current_goal
-        if active:
-            dx = active.x - final_pose.x
-            dy = active.y - final_pose.y
+        final_goal = self.waypoints[-1] if self.waypoints else None
+        if final_goal:
+            dx = final_goal.x - final_pose.x
+            dy = final_goal.y - final_pose.y
             final_position_error = sqrt(dx * dx + dy * dy)
         else:
             final_position_error = 0.0
@@ -196,19 +194,13 @@ class SimulationApp:
         waypoints_reached = len(self.waypoints) if self.waypoint_manager.completed else self.waypoint_manager._index
         total_waypoints = len(self.waypoints)
 
-        summary = (
-            self.logger.summary(final_position_error, waypoints_reached, total_waypoints)
-            if self.logger
-            else SimulationLogger().summary(final_position_error, waypoints_reached, total_waypoints)
-        )
-        if not self.logger:
-            summary["total_steps"] = self.completed_steps
-            summary["total_simulation_time"] = self.completed_steps * self.config.dt
+        summary = self.logger.summary(final_position_error, waypoints_reached, total_waypoints)
+        self.last_summary = summary
 
         self._print_summary(summary)
 
-        if self.logger:
-            self.logger.maybe_write_csv()
+        self.logger.maybe_write_csv()
+        if log_output:
             print(f"Saved log CSV to: {log_output}")
 
         return final_pose

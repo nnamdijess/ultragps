@@ -99,6 +99,39 @@ class TestTrajectoryAndLogging(unittest.TestCase):
             ]
             self.assertEqual(headers, expected_headers)
 
+
+    def test_summary_metrics_nonzero_on_waypoint_run(self):
+        app = SimulationApp(
+            mode="waypoint",
+            config=SimulationConfig(dt=0.05, max_steps=200, log_every_n=1000),
+            waypoints=[Waypoint(1.0, 0.0), Waypoint(2.0, 2.0)],
+        )
+
+        app.run(plot=False, log_output=None)
+
+        summary = app.last_summary
+        self.assertIsNotNone(summary)
+        self.assertGreater(summary["max_distance_error"], 0.0)
+        self.assertGreater(summary["avg_distance_error"], 0.0)
+        self.assertGreater(summary["max_abs_heading_error"], 0.0)
+        self.assertGreater(summary["avg_abs_heading_error"], 0.0)
+
+    def test_final_position_error_matches_euclidean_distance_to_final_waypoint(self):
+        final_waypoint = Waypoint(2.0, 2.0)
+        app = SimulationApp(
+            mode="waypoint",
+            config=SimulationConfig(dt=0.05, max_steps=220, log_every_n=1000),
+            waypoints=[Waypoint(1.0, 0.0), final_waypoint],
+        )
+
+        final_pose = app.run(plot=False, log_output=None)
+
+        summary = app.last_summary
+        self.assertIsNotNone(summary)
+
+        expected_error = ((final_waypoint.x - final_pose.x) ** 2 + (final_waypoint.y - final_pose.y) ** 2) ** 0.5
+        self.assertAlmostEqual(summary["final_position_error"], expected_error, places=6)
+
     def test_without_log_output_still_runs(self):
         app = SimulationApp(
             mode="waypoint",
