@@ -28,7 +28,7 @@ def parse_waypoints(value: str) -> list[Waypoint]:
     return waypoints
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="UltraGPS ROS-style simulator")
     parser.add_argument(
         "--mode",
@@ -47,32 +47,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--plot",
         action="store_true",
-        help="Show a 2D x-y trajectory plot at the end of simulation.",
-    )
-    parser.add_argument(
-        "--plot-output",
-        type=str,
-        default=None,
-        help="Optional output image path (e.g., trajectory.png).",
-    )
-    parser.add_argument(
-        "--heading-stride",
-        type=int,
-        default=15,
-        help="Spacing between heading arrows on trajectory plot.",
+        help="Plot the x-y trajectory after the simulation completes",
     )
     parser.add_argument(
         "--plot-headings",
         action="store_true",
-        help="Compatibility flag: heading arrows are already plotted when --plot is used.",
+        help="Overlay heading arrows on the trajectory plot",
     )
     parser.add_argument(
-        "--log-output",
-        type=str,
-        default=None,
-        help="Optional CSV output path for performance logging.",
+        "--heading-stride",
+        type=int,
+        default=10,
+        help="Spacing between plotted heading arrows when --plot-headings is used",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> None:
@@ -84,9 +72,8 @@ def main() -> None:
     )
     app.run(
         plot=args.plot,
-        plot_output=args.plot_output,
+        show_headings=args.plot_headings,
         heading_stride=args.heading_stride,
-        log_output=args.log_output,
     )
 
 

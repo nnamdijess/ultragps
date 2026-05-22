@@ -1,14 +1,12 @@
 """Simulation application wiring all ROS-style components together."""
 
 from dataclasses import dataclass
-from math import atan2, sqrt
+from math import cos, sin
 from typing import Literal
 
 from ultragps_sim.bus import SimpleBus
 from ultragps_sim.controller import GoToGoalController
-from ultragps_sim.logger import SimulationLogger, StepMetrics
 from ultragps_sim.messages import Pose2D, Twist2D, Waypoint
-from ultragps_sim.plotting import plot_trajectory
 from ultragps_sim.pose_publisher import PosePublisher
 from ultragps_sim.vehicle_simulator import DifferentialDriveSimulator
 from ultragps_sim.waypoint_manager import WaypointManager
@@ -32,7 +30,6 @@ class SimulationApp:
     ) -> None:
         self.mode = mode
         self.config = config or SimulationConfig()
-        self.waypoints = waypoints or [Waypoint(x=2.0, y=2.0)]
 
         self.bus = SimpleBus()
         self.simulator = DifferentialDriveSimulator(
@@ -41,61 +38,17 @@ class SimulationApp:
         )
         self.pose_publisher = PosePublisher(self.bus)
 
-        self.controller = GoToGoalController(self.bus, dt=self.config.dt)
+        self.controller = GoToGoalController(self.bus)
+        default_waypoints = [Waypoint(x=2.0, y=2.0)]
+        self.waypoints = list(waypoints or default_waypoints)
         self.waypoint_manager = WaypointManager(self.bus, self.waypoints)
-
         self.trajectory: list[Pose2D] = [self.simulator.pose]
-        self.logger = SimulationLogger()
-        self.completed_steps = 0
-        self.last_summary: dict | None = None
 
         self.bus.publish("/ground_truth_pose", self.simulator.pose)
         self.waypoint_manager.publish_goal()
 
     def _record_pose(self, pose: Pose2D) -> None:
         self.trajectory.append(pose)
-
-    @staticmethod
-    def _wrap_to_pi(angle: float) -> float:
-        while angle > 3.141592653589793:
-            angle -= 2 * 3.141592653589793
-        while angle < -3.141592653589793:
-            angle += 2 * 3.141592653589793
-        return angle
-
-    def _record_step_metrics(self, step: int, cmd: Twist2D, pose: Pose2D) -> None:
-        active = self.waypoint_manager.current_goal
-        goal_x = active.x if active else None
-        goal_y = active.y if active else None
-
-        if active:
-            dx = active.x - pose.x
-            dy = active.y - pose.y
-            distance_error = sqrt(dx * dx + dy * dy)
-            goal_heading = atan2(dy, dx)
-            heading_error = self._wrap_to_pi(goal_heading - pose.theta)
-        else:
-            distance_error = 0.0
-            heading_error = 0.0
-
-        waypoint_index = len(self.waypoints) - 1 if self.waypoint_manager.completed else self.waypoint_manager._index
-
-        self.logger.record(
-            StepMetrics(
-                time_taken=(step + 1) * self.config.dt,
-                x=pose.x,
-                y=pose.y,
-                theta=pose.theta,
-                goal_x=goal_x,
-                goal_y=goal_y,
-                distance_error=distance_error,
-                heading_error=heading_error,
-                v=cmd.v,
-                omega=cmd.omega,
-                waypoint_index=waypoint_index,
-                goal_reached=self.controller.goal_reached,
-            )
-        )
 
     def _run_open_loop(self) -> None:
         mode_to_cmd = {
@@ -109,8 +62,6 @@ class SimulationApp:
         for step in range(self.config.max_steps):
             pose = self.simulator.step(self.config.dt)
             self._record_pose(pose)
-            self._record_step_metrics(step, cmd, pose)
-            self.completed_steps = step + 1
             if step % self.config.log_every_n == 0:
                 print(
                     f"step={step:03d} cmd=(v={cmd.v:.2f}, w={cmd.omega:.2f}) "
@@ -122,8 +73,6 @@ class SimulationApp:
             cmd = self.controller.step()
             pose = self.simulator.step(self.config.dt)
             self._record_pose(pose)
-            self._record_step_metrics(step, cmd, pose)
-            self.completed_steps = step + 1
 
             if step % self.config.log_every_n == 0:
                 active = self.waypoint_manager.current_goal
@@ -137,27 +86,85 @@ class SimulationApp:
                 print(f"All waypoints completed at step {step}.")
                 break
 
-    def _print_summary(self, summary: dict) -> None:
-        print("Simulation Summary:")
-        print(f"  final position error: {summary['final_position_error']:.4f}")
-        print(f"  total simulation time: {summary['total_simulation_time']:.4f}")
-        print(f"  total steps: {summary['total_steps']}")
-        print(f"  waypoints reached: {summary['waypoints_reached']}")
-        print(f"  total waypoints: {summary['total_waypoints']}")
-        print(f"  maximum distance error: {summary['max_distance_error']:.4f}")
-        print(f"  average distance error: {summary['avg_distance_error']:.4f}")
-        print(f"  maximum absolute heading error: {summary['max_abs_heading_error']:.4f}")
-        print(f"  average absolute heading error: {summary['avg_abs_heading_error']:.4f}")
+    def _render_trajectory_plot(
+        self,
+        ax,
+        *,
+        show_headings: bool = False,
+        heading_stride: int = 10,
+    ) -> None:
+        if not self.trajectory:
+            raise ValueError("Trajectory is empty")
+        if heading_stride <= 0:
+            raise ValueError("heading_stride must be positive")
+
+        xs = [pose.x for pose in self.trajectory]
+        ys = [pose.y for pose in self.trajectory]
+        ax.plot(xs, ys, label="Trajectory", color="tab:blue")
+
+        start = self.trajectory[0]
+        final = self.trajectory[-1]
+        ax.scatter([start.x], [start.y], color="tab:green", marker="o", s=80, label="Start")
+        ax.scatter([final.x], [final.y], color="tab:red", marker="X", s=90, label="Final")
+
+        if self.waypoints:
+            ax.scatter(
+                [waypoint.x for waypoint in self.waypoints],
+                [waypoint.y for waypoint in self.waypoints],
+                color="tab:orange",
+                marker="^",
+                s=70,
+                label="Waypoints",
+            )
+
+        if show_headings:
+            samples = self.trajectory[::heading_stride]
+            if samples[-1] is not self.trajectory[-1]:
+                samples = samples + [self.trajectory[-1]]
+            ax.quiver(
+                [pose.x for pose in samples],
+                [pose.y for pose in samples],
+                [cos(pose.theta) for pose in samples],
+                [sin(pose.theta) for pose in samples],
+                angles="xy",
+                scale_units="xy",
+                scale=4.0,
+                width=0.003,
+                color="0.25",
+                label="Heading",
+            )
+
+        ax.set_title(f"UltraGPS Trajectory ({self.mode})")
+        ax.set_xlabel("x [m]")
+        ax.set_ylabel("y [m]")
+        ax.axis("equal")
+        ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
+        ax.legend()
+
+    def plot_trajectory(self, *, show_headings: bool = False, heading_stride: int = 10) -> None:
+        try:
+            import matplotlib.pyplot as plt
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "matplotlib is required for --plot. Install it and rerun the simulator."
+            ) from exc
+
+        fig, ax = plt.subplots()
+        self._render_trajectory_plot(
+            ax,
+            show_headings=show_headings,
+            heading_stride=heading_stride,
+        )
+        fig.tight_layout()
+        plt.show()
 
     def run(
         self,
+        *,
         plot: bool = False,
-        plot_output: str | None = None,
-        heading_stride: int = 15,
-        log_output: str | None = None,
+        show_headings: bool = False,
+        heading_stride: int = 10,
     ) -> Pose2D:
-        self.logger = SimulationLogger(csv_path=log_output)
-
         if self.mode in {"straight", "turn", "curve"}:
             self._run_open_loop()
         elif self.mode == "waypoint":
@@ -170,37 +177,6 @@ class SimulationApp:
             "Final pose: "
             f"x={final_pose.x:.3f}, y={final_pose.y:.3f}, theta={final_pose.theta:.3f}"
         )
-
         if plot:
-            plot_trajectory(
-                self.trajectory,
-                waypoints=self.waypoints if self.mode == "waypoint" else None,
-                title=f"UltraGPS Trajectory ({self.mode})",
-                heading_stride=heading_stride,
-                show=plot_output is None,
-                save_path=plot_output,
-            )
-            if plot_output:
-                print(f"Saved plot to: {plot_output}")
-
-        final_goal = self.waypoints[-1] if self.waypoints else None
-        if final_goal:
-            dx = final_goal.x - final_pose.x
-            dy = final_goal.y - final_pose.y
-            final_position_error = sqrt(dx * dx + dy * dy)
-        else:
-            final_position_error = 0.0
-
-        waypoints_reached = len(self.waypoints) if self.waypoint_manager.completed else self.waypoint_manager._index
-        total_waypoints = len(self.waypoints)
-
-        summary = self.logger.summary(final_position_error, waypoints_reached, total_waypoints)
-        self.last_summary = summary
-
-        self._print_summary(summary)
-
-        self.logger.maybe_write_csv()
-        if log_output:
-            print(f"Saved log CSV to: {log_output}")
-
+            self.plot_trajectory(show_headings=show_headings, heading_stride=heading_stride)
         return final_pose

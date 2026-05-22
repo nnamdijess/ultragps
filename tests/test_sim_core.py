@@ -1,14 +1,14 @@
-import csv
 import os
 import sys
-import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
+from run_sim import parse_args
 from ultragps_sim.bus import SimpleBus
 from ultragps_sim.controller import GoToGoalController
 from ultragps_sim.messages import Pose2D, Twist2D, Waypoint
@@ -26,6 +26,99 @@ class TestDifferentialDriveSimulator(unittest.TestCase):
         self.assertAlmostEqual(pose.x, 1.0, places=5)
         self.assertAlmostEqual(pose.y, 0.0, places=5)
         self.assertAlmostEqual(pose.theta, 0.0, places=5)
+
+
+class TestCli(unittest.TestCase):
+    def test_parse_args_supports_plot_flags(self):
+        args = parse_args(
+            [
+                "--mode",
+                "curve",
+                "--plot",
+                "--plot-headings",
+                "--heading-stride",
+                "7",
+            ]
+        )
+        self.assertEqual(args.mode, "curve")
+        self.assertTrue(args.plot)
+        self.assertTrue(args.plot_headings)
+        self.assertEqual(args.heading_stride, 7)
+
+
+class FakeAxis:
+    def __init__(self) -> None:
+        self.calls: dict[str, list[tuple[tuple, dict]]] = {
+            "plot": [],
+            "scatter": [],
+            "quiver": [],
+        }
+        self.title = None
+        self.xlabel = None
+        self.ylabel = None
+        self.axis_mode = None
+        self.grid_called = False
+        self.legend_called = False
+
+    def plot(self, *args, **kwargs):
+        self.calls["plot"].append((args, kwargs))
+
+    def scatter(self, *args, **kwargs):
+        self.calls["scatter"].append((args, kwargs))
+
+    def quiver(self, *args, **kwargs):
+        self.calls["quiver"].append((args, kwargs))
+
+    def set_title(self, value):
+        self.title = value
+
+    def set_xlabel(self, value):
+        self.xlabel = value
+
+    def set_ylabel(self, value):
+        self.ylabel = value
+
+    def axis(self, value):
+        self.axis_mode = value
+
+    def grid(self, *args, **kwargs):
+        self.grid_called = True
+
+    def legend(self):
+        self.legend_called = True
+
+
+class TestTrajectoryPlotting(unittest.TestCase):
+    def test_render_plot_marks_trajectory_start_final_waypoints_and_headings(self):
+        app = SimulationApp(
+            mode="waypoint",
+            config=SimulationConfig(max_steps=5),
+            waypoints=[Waypoint(1.0, 0.0), Waypoint(2.0, 1.0)],
+        )
+        app.trajectory = [
+            Pose2D(0.0, 0.0, 0.0),
+            Pose2D(1.0, 0.0, 0.0),
+            Pose2D(2.0, 1.0, 1.57),
+        ]
+        ax = FakeAxis()
+
+        app._render_trajectory_plot(ax, show_headings=True, heading_stride=2)
+
+        self.assertEqual(len(ax.calls["plot"]), 1)
+        self.assertEqual(len(ax.calls["scatter"]), 3)
+        self.assertEqual(len(ax.calls["quiver"]), 1)
+        self.assertEqual(ax.title, "UltraGPS Trajectory (waypoint)")
+        self.assertEqual(ax.xlabel, "x [m]")
+        self.assertEqual(ax.ylabel, "y [m]")
+        self.assertEqual(ax.axis_mode, "equal")
+        self.assertTrue(ax.grid_called)
+        self.assertTrue(ax.legend_called)
+
+    def test_plot_trajectory_requires_matplotlib_when_requested(self):
+        app = SimulationApp(mode="straight", config=SimulationConfig(max_steps=1))
+        with patch("builtins.__import__", side_effect=ModuleNotFoundError):
+            with self.assertRaises(RuntimeError):
+                app.plot_trajectory()
 
 
 class TestControllerAndWaypoints(unittest.TestCase):
@@ -54,93 +147,6 @@ class TestControllerAndWaypoints(unittest.TestCase):
         second = manager.current_goal
         self.assertIsNotNone(second)
         self.assertEqual((second.x, second.y), (2.0, 0.0))
-
-
-class TestTrajectoryAndLogging(unittest.TestCase):
-    def test_trajectory_is_recorded(self):
-        app = SimulationApp(
-            mode="straight",
-            config=SimulationConfig(dt=0.1, max_steps=10, log_every_n=1000),
-        )
-
-        app.run(plot=False)
-
-        self.assertEqual(len(app.trajectory), 11)
-
-    def test_logger_creates_csv_with_expected_headers(self):
-        app = SimulationApp(
-            mode="waypoint",
-            config=SimulationConfig(dt=0.1, max_steps=20, log_every_n=1000),
-            waypoints=[Waypoint(0.5, 0.0)],
-        )
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            csv_path = os.path.join(tmp_dir, "sim_log.csv")
-            app.run(plot=False, log_output=csv_path)
-            self.assertTrue(os.path.exists(csv_path))
-
-            with open(csv_path, newline="", encoding="utf-8") as file_obj:
-                reader = csv.reader(file_obj)
-                headers = next(reader)
-
-            expected_headers = [
-                "time taken",
-                "x",
-                "y",
-                "theta",
-                "goal_x",
-                "goal_y",
-                "distance_error",
-                "heading_error",
-                "v",
-                "omega",
-                "waypoint_index",
-                "goal_reached",
-            ]
-            self.assertEqual(headers, expected_headers)
-
-
-    def test_summary_metrics_nonzero_on_waypoint_run(self):
-        app = SimulationApp(
-            mode="waypoint",
-            config=SimulationConfig(dt=0.05, max_steps=200, log_every_n=1000),
-            waypoints=[Waypoint(1.0, 0.0), Waypoint(2.0, 2.0)],
-        )
-
-        app.run(plot=False, log_output=None)
-
-        summary = app.last_summary
-        self.assertIsNotNone(summary)
-        self.assertGreater(summary["max_distance_error"], 0.0)
-        self.assertGreater(summary["avg_distance_error"], 0.0)
-        self.assertGreater(summary["max_abs_heading_error"], 0.0)
-        self.assertGreater(summary["avg_abs_heading_error"], 0.0)
-
-    def test_final_position_error_matches_euclidean_distance_to_final_waypoint(self):
-        final_waypoint = Waypoint(2.0, 2.0)
-        app = SimulationApp(
-            mode="waypoint",
-            config=SimulationConfig(dt=0.05, max_steps=220, log_every_n=1000),
-            waypoints=[Waypoint(1.0, 0.0), final_waypoint],
-        )
-
-        final_pose = app.run(plot=False, log_output=None)
-
-        summary = app.last_summary
-        self.assertIsNotNone(summary)
-
-        expected_error = ((final_waypoint.x - final_pose.x) ** 2 + (final_waypoint.y - final_pose.y) ** 2) ** 0.5
-        self.assertAlmostEqual(summary["final_position_error"], expected_error, places=6)
-
-    def test_without_log_output_still_runs(self):
-        app = SimulationApp(
-            mode="waypoint",
-            config=SimulationConfig(dt=0.1, max_steps=15, log_every_n=1000),
-            waypoints=[Waypoint(0.5, 0.0)],
-        )
-
-        final_pose = app.run(plot=False, log_output=None)
-        self.assertIsInstance(final_pose, Pose2D)
 
 
 if __name__ == "__main__":

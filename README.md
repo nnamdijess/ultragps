@@ -2,6 +2,8 @@
 
 This repository contains a **plain Python simulator** organized in a ROS-style architecture. It is lightweight and runnable without ROS installed, while keeping a clean migration path to ROS 2.
 
+Trajectory plotting is available as an optional extension to the terminal simulator via `matplotlib`.
+
 ## Design summary
 
 Components are intentionally separated like ROS nodes:
@@ -21,7 +23,6 @@ Components are intentionally separated like ROS nodes:
 ```text
 ultragps/
 ├── README.md
-├── requirements.txt
 ├── run_sim.py
 ├── tests/
 │   └── test_sim_core.py
@@ -34,7 +35,6 @@ ultragps/
         ├── controller.py
         ├── vehicle_simulator.py
         ├── pose_publisher.py
-        ├── plotting.py
         └── sim_app.py
 ```
 
@@ -107,7 +107,7 @@ Why use `(v, omega)` first:
 
 ---
 
-## 4) Go-to-goal controller (PD)
+## 4) Go-to-goal controller
 
 Given current pose `(x, y, theta)` and goal `(x_g, y_g)`:
 
@@ -115,56 +115,41 @@ Given current pose `(x, y, theta)` and goal `(x_g, y_g)`:
 2. `distance = sqrt(dx^2 + dy^2)`
 3. `goal_heading = atan2(dy, dx)`
 4. `heading_error = wrap_to_pi(goal_heading - theta)`
-5. `distance_dot = (distance - prev_distance) / dt`
-6. `heading_error_dot = (heading_error - prev_heading_error) / dt`
-7. `v = clamp(k_v * distance + k_d_v * distance_dot, 0, v_max)`
-8. `omega = clamp(k_omega * heading_error + k_d_omega * heading_error_dot, -omega_max, omega_max)`
-9. if `distance <= goal_tolerance`: publish stop command and emit `/goal_reached`
+5. `v = clamp(k_v * distance, 0, v_max)`
+6. `omega = clamp(k_omega * heading_error, -omega_max, omega_max)`
+7. if `distance <= goal_tolerance`: publish stop command and emit `/goal_reached`
 
 ---
 
-## 5) Install and run
-
-Install dependencies:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-Run scenarios:
+## 5) Run scenarios
 
 ```bash
 python run_sim.py --mode straight --steps 80
 python run_sim.py --mode turn --steps 80
 python run_sim.py --mode curve --steps 80
 python run_sim.py --mode waypoint --waypoints "1.0,0.0;2.0,2.0" --steps 400
-```
-
-Enable trajectory plotting at end of run:
-
-```bash
 python run_sim.py --mode waypoint --waypoints "1.0,0.0;2.0,2.0" --steps 400 --plot
+python run_sim.py --mode curve --steps 120 --plot --plot-headings --heading-stride 8
 ```
 
-Save the figure to file (useful in headless environments):
+Modes exercise:
 
-```bash
-python run_sim.py --mode waypoint --waypoints "1.0,0.0;2.0,2.0" --steps 400 --plot --plot-output trajectory.png
-```
+- straight line
+- pure rotation
+- curved motion
+- single or multiple waypoint following
 
-Adjust heading-arrow spacing:
+### Trajectory plotting
 
-```bash
-python run_sim.py --mode waypoint --plot --heading-stride 20
-```
+Use `--plot` to open a matplotlib figure after the terminal simulation finishes. The plot includes:
 
-Enable CSV performance logging:
+- the robot x-y trajectory
+- a start marker
+- a final pose marker
+- waypoint markers when waypoints are supplied
+- optional heading arrows with `--plot-headings`
 
-```bash
-python run_sim.py --mode waypoint --waypoints "1.0,0.0;2.0,2.0" --steps 240 --plot --log-output pd_test.csv --plot-headings --heading-stride 8
-```
-
-The CSV includes per-step metrics: time taken, pose (`x`, `y`, `theta`), active goal, distance/heading errors, command (`v`, `omega`), waypoint index, and goal-reached flag.
+`--heading-stride` controls how frequently heading arrows are shown.
 
 ---
 
@@ -182,24 +167,7 @@ Current tests cover:
 
 ---
 
-## 7) Interpreting the trajectory plot
-
-- **Blue line**: full x-y robot path over time.
-- **Green circle**: start pose position.
-- **Red X**: final pose position.
-- **Orange stars**: waypoints (when in waypoint mode).
-- **Purple arrows**: sampled heading direction (`theta`) along the path.
-
-Use it to quickly verify:
-
-- straight mode => near-straight line
-- turn mode => mostly stationary x-y with changing heading
-- curve mode => arc-like path
-- waypoint mode => path passes through/near waypoint stars and ends at final goal tolerance
-
----
-
-## 8) What’s next
+## 7) What’s next
 
 1. Add timestamped messages and simple logging utility.
 2. Add configurable controller gains from YAML/JSON.
