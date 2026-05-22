@@ -1,0 +1,194 @@
+import csv
+import os
+import sys
+import tempfile
+import unittest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC_DIR = os.path.join(ROOT, "src")
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
+
+from ultragps_sim.bus import SimpleBus
+from ultragps_sim.controller import GoToGoalController
+from ultragps_sim.messages import Pose2D, Twist2D, Waypoint
+from ultragps_sim.sim_app import SimulationApp, SimulationConfig
+from ultragps_sim.ultragps_sensor import UltraGPSSensor
+from ultragps_sim.vehicle_simulator import DifferentialDriveSimulator
+from ultragps_sim.waypoint_manager import WaypointManager
+
+
+class TestDifferentialDriveSimulator(unittest.TestCase):
+    def test_straight_motion(self):
+        bus = SimpleBus()
+        sim = DifferentialDriveSimulator(bus, initial_pose=Pose2D(0.0, 0.0, 0.0))
+        bus.publish("/cmd_vel", Twist2D(v=1.0, omega=0.0))
+        pose = sim.step(1.0)
+        self.assertAlmostEqual(pose.x, 1.0, places=5)
+        self.assertAlmostEqual(pose.y, 0.0, places=5)
+        self.assertAlmostEqual(pose.theta, 0.0, places=5)
+
+
+class TestControllerAndWaypoints(unittest.TestCase):
+    def test_controller_reaches_goal_and_emits_event(self):
+        bus = SimpleBus()
+        controller = GoToGoalController(bus, goal_tolerance=0.1)
+
+        bus.publish("/goal_waypoint", Waypoint(1.0, 0.0))
+        bus.publish("/pose", Pose2D(1.05, 0.0, 0.0))
+
+        cmd = controller.step()
+        self.assertEqual(cmd.v, 0.0)
+        self.assertEqual(cmd.omega, 0.0)
+
+        reached_event = bus.last_message("/goal_reached")
+        self.assertIsNotNone(reached_event)
+
+    def test_waypoint_manager_advances_queue(self):
+        bus = SimpleBus()
+        manager = WaypointManager(bus, [Waypoint(1.0, 0.0), Waypoint(2.0, 0.0)])
+
+        first = manager.publish_goal()
+        self.assertEqual((first.x, first.y), (1.0, 0.0))
+
+        bus.publish("/goal_reached", {"goal_x": 1.0, "goal_y": 0.0})
+        second = manager.current_goal
+        self.assertIsNotNone(second)
+        self.assertEqual((second.x, second.y), (2.0, 0.0))
+
+
+class TestTrajectoryAndLogging(unittest.TestCase):
+    def test_trajectory_is_recorded(self):
+        app = SimulationApp(
+            mode="straight",
+            config=SimulationConfig(dt=0.1, max_steps=10, log_every_n=1000),
+        )
+
+        app.run(plot=False)
+
+        self.assertEqual(len(app.trajectory), 11)
+
+    def test_logger_creates_csv_with_expected_headers(self):
+        app = SimulationApp(
+            mode="waypoint",
+            config=SimulationConfig(dt=0.1, max_steps=20, log_every_n=1000),
+            waypoints=[Waypoint(0.5, 0.0)],
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            csv_path = os.path.join(tmp_dir, "sim_log.csv")
+            app.run(plot=False, log_output=csv_path)
+            self.assertTrue(os.path.exists(csv_path))
+
+            with open(csv_path, newline="", encoding="utf-8") as file_obj:
+                reader = csv.reader(file_obj)
+                headers = next(reader)
+
+            expected_headers = [
+                "time taken",
+                "true_x",
+                "true_y",
+                "true_theta",
+                "estimated_x",
+                "estimated_y",
+                "estimated_theta",
+                "goal_x",
+                "goal_y",
+                "distance_error",
+                "heading_error",
+                "v",
+                "omega",
+                "waypoint_index",
+                "goal_reached",
+            ]
+            self.assertEqual(headers, expected_headers)
+
+    def test_summary_metrics_nonzero_on_waypoint_run(self):
+        app = SimulationApp(
+            mode="waypoint",
+            config=SimulationConfig(dt=0.05, max_steps=200, log_every_n=1000),
+            waypoints=[Waypoint(1.0, 0.0), Waypoint(2.0, 2.0)],
+        )
+
+        app.run(plot=False, log_output=None)
+
+        summary = app.last_summary
+        self.assertIsNotNone(summary)
+        self.assertGreater(summary["max_distance_error"], 0.0)
+        self.assertGreater(summary["avg_distance_error"], 0.0)
+        self.assertGreater(summary["max_abs_heading_error"], 0.0)
+        self.assertGreater(summary["avg_abs_heading_error"], 0.0)
+
+    def test_final_position_error_matches_euclidean_distance_to_final_waypoint(self):
+        final_waypoint = Waypoint(2.0, 2.0)
+        app = SimulationApp(
+            mode="waypoint",
+            config=SimulationConfig(dt=0.05, max_steps=220, log_every_n=1000),
+            waypoints=[Waypoint(1.0, 0.0), final_waypoint],
+        )
+
+        final_pose = app.run(plot=False, log_output=None)
+
+        summary = app.last_summary
+        self.assertIsNotNone(summary)
+
+        expected_error = ((final_waypoint.x - final_pose.x) ** 2 + (final_waypoint.y - final_pose.y) ** 2) ** 0.5
+        self.assertAlmostEqual(summary["final_position_error"], expected_error, places=6)
+
+    def test_without_log_output_still_runs(self):
+        app = SimulationApp(
+            mode="waypoint",
+            config=SimulationConfig(dt=0.1, max_steps=15, log_every_n=1000),
+            waypoints=[Waypoint(0.5, 0.0)],
+        )
+
+        final_pose = app.run(plot=False, log_output=None)
+        self.assertIsInstance(final_pose, Pose2D)
+
+
+class TestUltraGPSSensor(unittest.TestCase):
+    def test_estimated_pose_is_published_when_enabled(self):
+        bus = SimpleBus()
+        sensor = UltraGPSSensor(bus, position_noise_std=0.0, heading_noise_std=0.0)
+        bus.publish("/pose", Pose2D(1.0, 2.0, 0.5))
+
+        estimated = bus.last_message("/estimated_pose")
+        self.assertIsNotNone(estimated)
+        self.assertAlmostEqual(estimated.x, 1.0, places=6)
+        self.assertAlmostEqual(estimated.y, 2.0, places=6)
+        self.assertAlmostEqual(estimated.theta, 0.5, places=6)
+        self.assertIsNotNone(sensor.latest_estimated_pose)
+
+    def test_estimated_pose_differs_with_nonzero_noise(self):
+        bus = SimpleBus()
+        UltraGPSSensor(bus, position_noise_std=0.1, heading_noise_std=0.1)
+        true_pose = Pose2D(1.0, 2.0, 0.5)
+        bus.publish("/pose", true_pose)
+
+        estimated = bus.last_message("/estimated_pose")
+        self.assertIsNotNone(estimated)
+
+        different = (
+            abs(estimated.x - true_pose.x) > 1e-12
+            or abs(estimated.y - true_pose.y) > 1e-12
+            or abs(estimated.theta - true_pose.theta) > 1e-12
+        )
+        self.assertTrue(different)
+
+    def test_controller_can_run_using_estimated_pose(self):
+        app = SimulationApp(
+            mode="waypoint",
+            config=SimulationConfig(dt=0.05, max_steps=120, log_every_n=1000),
+            waypoints=[Waypoint(1.0, 0.0)],
+            use_estimated_pose=True,
+            position_noise_std=0.02,
+            heading_noise_std=0.05,
+        )
+
+        final_pose = app.run(plot=False, log_output=None)
+        self.assertIsInstance(final_pose, Pose2D)
+        self.assertIsNotNone(app.ultragps_sensor)
+
+
+if __name__ == "__main__":
+    unittest.main()
