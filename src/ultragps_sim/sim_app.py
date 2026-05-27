@@ -33,6 +33,7 @@ class SimulationApp:
         use_estimated_pose: bool = False,
         position_noise_std: float = 0.0,
         heading_noise_std: float = 0.0,
+        ultragps_rate_hz: float = 10.0,
     ) -> None:
         self.mode = mode
         self.config = config or SimulationConfig()
@@ -41,6 +42,9 @@ class SimulationApp:
         self.use_estimated_pose = use_estimated_pose
         self.position_noise_std = position_noise_std
         self.heading_noise_std = heading_noise_std
+        self.ultragps_rate_hz = ultragps_rate_hz
+        if self.use_estimated_pose and self.ultragps_rate_hz <= 0.0:
+            raise ValueError("ultragps_rate_hz must be positive when UltraGPS estimate mode is enabled")
 
         self.bus = SimpleBus()
         self.simulator = DifferentialDriveSimulator(
@@ -55,6 +59,8 @@ class SimulationApp:
                 self.bus,
                 position_noise_std=self.position_noise_std,
                 heading_noise_std=self.heading_noise_std,
+                sim_dt=self.config.dt,
+                update_rate_hz=self.ultragps_rate_hz,
             )
 
         pose_topic = "/estimated_pose" if self.use_estimated_pose else "/pose"
@@ -100,6 +106,7 @@ class SimulationApp:
         waypoint_index = len(self.waypoints) - 1 if self.waypoint_manager.completed else self.waypoint_manager._index
 
         estimated_pose = self.ultragps_sensor.latest_estimated_pose if self.ultragps_sensor else None
+        estimate_updated = self.ultragps_sensor.estimate_updated if self.ultragps_sensor else False
 
         self.logger.record(
             StepMetrics(
@@ -110,6 +117,7 @@ class SimulationApp:
                 estimated_x=estimated_pose.x if estimated_pose else None,
                 estimated_y=estimated_pose.y if estimated_pose else None,
                 estimated_theta=estimated_pose.theta if estimated_pose else None,
+                estimate_updated=estimate_updated,
                 goal_x=goal_x,
                 goal_y=goal_y,
                 distance_error=distance_error,

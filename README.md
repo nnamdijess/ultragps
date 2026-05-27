@@ -171,11 +171,26 @@ Simulated UltraGPS estimate options:
 - `--use-ultragps-estimate`: feed controller with `/estimated_pose` instead of `/pose`.
 - `--position-noise`: Gaussian standard deviation for x/y estimate noise (meters).
 - `--heading-noise`: Gaussian standard deviation for heading estimate noise (radians).
+- `--ultragps-rate`: estimated-pose update rate in Hz. Real UltraGPS over UDP is typically around 10 Hz (TCP can be lower around 5 Hz, and current hardware tops out near 15 Hz).
+
+Update-rate behavior note:
+
+- Simulation `--dt` and UltraGPS `--ultragps-rate` are separate.
+- `--dt` controls vehicle physics update frequency.
+- `--ultragps-rate` controls how often a *new* estimated pose is generated.
+- Example: `--dt 0.05` (20 Hz simulation) with `--ultragps-rate 10` creates a new estimate every 0.1 s, so the controller reuses the latest estimate for one intermediate simulation step.
+- This models **update-rate limiting**, not full communication **latency**. Update rate is how often fresh estimates are produced; latency is how old the estimate is when received.
 
 Example noisy UltraGPS run:
 
 ```bash
 python run_sim.py --mode waypoint --waypoints "1.0,0.0;2.0,2.0" --steps 240 --plot --plot-output noisy_ultragps.png --log-output noisy_ultragps.csv --use-ultragps-estimate --position-noise 0.02 --heading-noise 0.05 --plot-headings --heading-stride 8
+```
+
+Example UDP 10 Hz run:
+
+```bash
+python run_sim.py --mode waypoint --waypoints "1.0,0.0;2.0,0.0;2.0,2.0;0.0,2.0" --steps 400 --plot --plot-output udp_10hz.png --log-output udp_10hz.csv --use-ultragps-estimate --position-noise 0.05 --heading-noise 0.08 --ultragps-rate 10 --plot-headings --heading-stride 20
 ```
 
 ---

@@ -92,6 +92,7 @@ class TestTrajectoryAndLogging(unittest.TestCase):
                 "estimated_x",
                 "estimated_y",
                 "estimated_theta",
+                "estimate_updated",
                 "goal_x",
                 "goal_y",
                 "distance_error",
@@ -188,6 +189,43 @@ class TestUltraGPSSensor(unittest.TestCase):
         final_pose = app.run(plot=False, log_output=None)
         self.assertIsInstance(final_pose, Pose2D)
         self.assertIsNotNone(app.ultragps_sensor)
+
+    def test_rate_limiting_updates_every_two_steps_at_10hz_with_dt_005(self):
+        bus = SimpleBus()
+        sensor = UltraGPSSensor(bus, position_noise_std=0.0, heading_noise_std=0.0, sim_dt=0.05, update_rate_hz=10.0)
+        updates: list[bool] = []
+
+        for step in range(6):
+            bus.publish("/pose", Pose2D(float(step), 0.0, 0.0))
+            updates.append(sensor.estimate_updated)
+
+        self.assertEqual(updates, [True, False, True, False, True, False])
+
+    def test_noise_is_not_regenerated_between_rate_limited_updates(self):
+        bus = SimpleBus()
+        sensor = UltraGPSSensor(bus, position_noise_std=0.2, heading_noise_std=0.2, sim_dt=0.05, update_rate_hz=10.0)
+
+        bus.publish("/pose", Pose2D(0.0, 0.0, 0.0))
+        first = sensor.latest_estimated_pose
+        self.assertIsNotNone(first)
+        self.assertTrue(sensor.estimate_updated)
+
+        bus.publish("/pose", Pose2D(0.1, 0.0, 0.0))
+        second = sensor.latest_estimated_pose
+        self.assertFalse(sensor.estimate_updated)
+        self.assertIs(first, second)
+
+    def test_estimate_updated_csv_flag_true_only_on_update_steps(self):
+        app = SimulationApp(
+            mode="waypoint",
+            config=SimulationConfig(dt=0.05, max_steps=6, log_every_n=1000),
+            waypoints=[Waypoint(1.0, 0.0)],
+            use_estimated_pose=True,
+            ultragps_rate_hz=10.0,
+        )
+        app.run(plot=False, log_output=None)
+        updates = [row.estimate_updated for row in app.logger.rows]
+        self.assertEqual(updates, [False, True, False, True, False, True])
 
 
 if __name__ == "__main__":
