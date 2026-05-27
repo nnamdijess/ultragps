@@ -89,6 +89,12 @@ def parse_args() -> argparse.Namespace:
         default=0.0,
         help="UltraGPS heading noise standard deviation (radians).",
     )
+    parser.add_argument(
+        "--ultragps-rate",
+        type=float,
+        default=10.0,
+        help="UltraGPS estimated pose update rate in Hz (UDP baseline is typically 10 Hz).",
+    )
     return parser.parse_args()
 
 
@@ -101,6 +107,7 @@ def main() -> None:
         use_estimated_pose=args.use_ultragps_estimate,
         position_noise_std=args.position_noise,
         heading_noise_std=args.heading_noise,
+        ultragps_rate_hz=args.ultragps_rate,
     )
     app.run(
         plot=args.plot,

@@ -14,6 +14,7 @@ class StepMetrics:
     estimated_x: float | None
     estimated_y: float | None
     estimated_theta: float | None
+    estimate_updated: bool
     goal_x: float | None
     goal_y: float | None
     distance_error: float
@@ -35,6 +36,7 @@ class SimulationLogger:
         "estimated_x",
         "estimated_y",
         "estimated_theta",
+        "estimate_updated",
         "goal_x",
         "goal_y",
         "distance_error",
@@ -70,6 +72,7 @@ class SimulationLogger:
                         "estimated_x": row.estimated_x,
                         "estimated_y": row.estimated_y,
                         "estimated_theta": row.estimated_theta,
+                        "estimate_updated": row.estimate_updated,
                         "goal_x": row.goal_x,
                         "goal_y": row.goal_y,
                         "distance_error": row.distance_error,
